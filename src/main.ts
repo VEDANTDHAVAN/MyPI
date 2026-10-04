@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { getProvider } from "./index.ts";
 import type { Message, AssistantMessage } from "./types.ts";
-import { readTool } from "./tools/read.ts";
 import { runAgent } from "./agent/loop.ts";
 import { tools } from "./tools/index.ts";
 // load the .env next to the code, so mypi works from any folder
