@@ -4,16 +4,16 @@ import { createOpenAICompatible } from "./providers/openai-conpatible.ts";
 
 const provider: Record<string, () => Provider> = {
   anthropic: createAnthropic,
-  "vercel-openai": () =>
+  "vercel-kimi": () =>
     createOpenAICompatible(
-      "vercel-openai",
+      "vercel-kimi",
       "https://ai-gateway.vercel.sh/v1",
       process.env.AI_GATEWAY_API_KEY!,
-      "openai/gpt-5.4-nano",
+      "moonshotai/kimi-k2.7-code",
     ),
   "vercel-gemini": () =>
     createOpenAICompatible(
-      "vercel-openai",
+      "vercel-gemini",
       "https://ai-gateway.vercel.sh/v1",
       process.env.AI_GATEWAY_API_KEY!,
       "google/gemini-2.5-flash",
