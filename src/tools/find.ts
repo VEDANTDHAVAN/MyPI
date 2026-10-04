@@ -1,21 +1,11 @@
-import { readdir, stat } from "node:fs/promises";
-import { resolve, relative, join } from "node:path";
+import { resolve, basename } from "node:path";
 import type { Tool } from "../types.ts";
+import { globToRegex, walk, relativePath } from "./utils.ts";
 
 const MAX_RESULTS = 200;
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&");
-}
-
-async function* walk(dir: string): AsyncGenerator<string> {
-  const items = await readdir(dir, { withFileTypes: true });
-  for (const item of items) {
-    if (item.name.startsWith(".")) continue;
-    const fullPath = join(dir, item.name);
-    if (item.isDirectory()) yield* walk(fullPath);
-    else if (item.isFile()) yield fullPath;
-  }
+function normalizeRel(p: string): string {
+  return p.replace(/\\/g, "/");
 }
 
 export const findTool: Tool = {
@@ -46,33 +36,36 @@ export const findTool: Tool = {
   async execute(args) {
     const root = resolve(process.cwd(), String(args.path ?? "."));
     const name = String(args.name ?? "");
-    const mode = String(args.mode ?? "contains") as "exact" | "contains" | "glob";
+    const mode = String(args.mode ?? "contains") as
+      | "exact"
+      | "contains"
+      | "glob";
     if (!name) return "Error: name is required";
 
     const exact = mode === "exact";
     const glob = mode === "glob";
     const lowerName = name.toLowerCase();
 
-    let matcher: (fileName: string) => boolean;
-    if (exact) {
-      matcher = (n) => n === name;
-    } else if (glob) {
-      const regex = new RegExp(
-        "^" +
-          escapeRegExp(name).replace(/\\*/g, ".*").replace(/\\?/g, ".") +
-          "$",
-        "i",
-      );
-      matcher = (n) => regex.test(n);
-    } else {
-      matcher = (n) => n.toLowerCase().includes(lowerName);
-    }
+    const globRegex = glob ? globToRegex(name, "i") : null;
 
     const results: string[] = [];
-    for await (const filePath of walk(root)) {
-      const fileName = filePath.slice(filePath.lastIndexOf("/") + 1);
-      if (matcher(fileName)) {
-        results.push(relative(root, filePath));
+    for await (const filePath of walk(root, {
+      excludeDirs: new Set(["node_modules", ".git", "dist", "build"]),
+    })) {
+      const fileName = basename(filePath);
+      const rel = normalizeRel(relativePath(root, filePath));
+
+      let match = false;
+      if (exact) {
+        match = fileName === name;
+      } else if (glob) {
+        match = globRegex!.test(rel);
+      } else {
+        match = fileName.toLowerCase().includes(lowerName);
+      }
+
+      if (match) {
+        results.push(rel);
         if (results.length >= MAX_RESULTS) break;
       }
     }

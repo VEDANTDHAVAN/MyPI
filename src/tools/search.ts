@@ -1,30 +1,13 @@
-import { readFile } from "node:fs/promises";
-import { readdir, stat } from "node:fs/promises";
-import { resolve, relative, join } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { resolve } from "node:path";
 import type { Tool } from "../types.ts";
+import { escapeRegExp, globToRegex, walk, relativePath } from "./utils.ts";
 
 const MAX_RESULTS = 100;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
-async function* walk(
-  dir: string,
-  base: string,
-  excludeDirs: Set<string>,
-): AsyncGenerator<string> {
-  const items = await readdir(dir, { withFileTypes: true });
-  for (const item of items) {
-    if (item.name.startsWith(".")) continue;
-    const fullPath = join(dir, item.name);
-    if (item.isDirectory()) {
-      if (!excludeDirs.has(item.name)) yield* walk(fullPath, base, excludeDirs);
-    } else if (item.isFile()) {
-      yield fullPath;
-    }
-  }
-}
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&");
+function normalizeRel(p: string): string {
+  return p.replace(/\\/g, "/");
 }
 
 async function searchFiles(
@@ -34,29 +17,26 @@ async function searchFiles(
   regex: boolean,
   glob: string | undefined,
 ): Promise<string[]> {
+  const flags = caseSensitive ? "g" : "gi";
   const pattern = regex
-    ? new RegExp(query, caseSensitive ? "g" : "gi")
-    : new RegExp(escapeRegExp(query), caseSensitive ? "g" : "gi");
+    ? new RegExp(query, flags)
+    : new RegExp(escapeRegExp(query), flags);
 
-  const globRegex = glob
-    ? new RegExp(
-        "^" +
-          glob
-            .split("*")
-            .map((s) => escapeRegExp(s))
-            .join(".*") +
-          "$",
-        caseSensitive ? "" : "i",
-      )
-    : null;
+  const globRegex = glob ? globToRegex(glob, caseSensitive ? "" : "i") : null;
 
   const results: string[] = [];
-  for await (const filePath of walk(root, root, new Set(["node_modules", ".git", "dist", "build"]))) {
-    if (globRegex && !globRegex.test(filePath)) continue;
+  for await (const filePath of walk(root, {
+    excludeDirs: new Set(["node_modules", ".git", "dist", "build"]),
+  })) {
+    const rel = normalizeRel(relativePath(root, filePath));
+    if (globRegex && !globRegex.test(rel)) continue;
+
     try {
       const s = await stat(filePath);
       if (!s.isFile() || s.size > MAX_FILE_BYTES) continue;
       const text = await readFile(filePath, "utf-8");
+
+      pattern.lastIndex = 0;
       const matches: number[] = [];
       let m;
       while ((m = pattern.exec(text)) !== null) {
@@ -64,8 +44,8 @@ async function searchFiles(
         if (m.index === pattern.lastIndex) pattern.lastIndex++;
         if (matches.length >= 20) break;
       }
+
       if (matches.length > 0) {
-        const rel = relative(root, filePath);
         const lines = matches.map((idx) => {
           const lineStart = text.lastIndexOf("\n", idx) + 1;
           const lineEnd = text.indexOf("\n", idx);

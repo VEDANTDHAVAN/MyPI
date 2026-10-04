@@ -1,10 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Tool } from "../types.ts";
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&");
-}
+import { escapeRegExp } from "./utils.ts";
 
 export const editTool: Tool = {
   name: "edit",

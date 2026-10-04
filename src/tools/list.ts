@@ -62,10 +62,14 @@ export const listTool: Tool = {
   async execute(args) {
     const dir = resolve(process.cwd(), String(args.path ?? "."));
     const recursive = Boolean(args.recursive ?? false);
-    const entries = await listDir(dir, recursive);
-    if (entries.length === 0) return "(empty directory)";
-    return entries
-      .map((e) => `${e.type.padEnd(9)} ${String(e.size).padStart(10)} ${e.modified ? e.modified + " " : ""}${e.name}`)
-      .join("\n");
+    try {
+      const entries = await listDir(dir, recursive);
+      if (entries.length === 0) return "(empty directory)";
+      return entries
+        .map((e) => `${e.type.padEnd(9)} ${String(e.size).padStart(10)} ${e.modified ? e.modified + " " : ""}${e.name}`)
+        .join("\n");
+    } catch (e) {
+      return `Error: ${e instanceof Error ? e.message : String(e)}`;
+    }
   },
 };

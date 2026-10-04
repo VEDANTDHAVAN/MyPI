@@ -1,23 +1,13 @@
-import { readFile } from "node:fs/promises";
-import { readdir, stat } from "node:fs/promises";
-import { resolve, relative, join } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { resolve } from "node:path";
 import type { Tool } from "../types.ts";
+import { escapeRegExp, globToRegex, walk, relativePath } from "./utils.ts";
 
 const MAX_RESULTS = 100;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&");
-}
-
-async function* walk(dir: string): AsyncGenerator<string> {
-  const items = await readdir(dir, { withFileTypes: true });
-  for (const item of items) {
-    if (item.name.startsWith(".")) continue;
-    const fullPath = join(dir, item.name);
-    if (item.isDirectory()) yield* walk(fullPath);
-    else if (item.isFile()) yield fullPath;
-  }
+function normalizeRel(p: string): string {
+  return p.replace(/\\/g, "/");
 }
 
 export const grepTool: Tool = {
@@ -52,23 +42,15 @@ export const grepTool: Tool = {
     const context = Math.max(0, Math.min(5, Number(args.context ?? 2)));
     if (!query) return "Error: query is required";
 
-    const globRegex = glob
-      ? new RegExp(
-          "^" +
-            glob
-              .split("*")
-              .map((s) => escapeRegExp(s))
-              .join(".*") +
-            "$",
-          "i",
-        )
-      : null;
-
+    const globRegex = glob ? globToRegex(glob, "i") : null;
     const pattern = new RegExp(escapeRegExp(query), "gi");
     const results: string[] = [];
 
-    for await (const filePath of walk(root)) {
-      if (globRegex && !globRegex.test(filePath)) continue;
+    for await (const filePath of walk(root, {
+      excludeDirs: new Set(["node_modules", ".git", "dist", "build"]),
+    })) {
+      const rel = normalizeRel(relativePath(root, filePath));
+      if (globRegex && !globRegex.test(rel)) continue;
       try {
         const s = await stat(filePath);
         if (!s.isFile() || s.size > MAX_FILE_BYTES) continue;
@@ -76,12 +58,11 @@ export const grepTool: Tool = {
         const lines = text.split("\n");
         const matched: number[] = [];
         for (let i = 0; i < lines.length; i++) {
-          if (pattern.test(lines[i])) matched.push(i);
           pattern.lastIndex = 0;
+          if (pattern.test(lines[i])) matched.push(i);
         }
         if (matched.length === 0) continue;
 
-        const rel = relative(root, filePath);
         const out: string[] = [`${rel}:`];
         for (const idx of matched) {
           const start = Math.max(0, idx - context);
